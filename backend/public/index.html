@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dash Companion — Trends</title>
+  <style>
+    :root {
+      --bg: #0e1116; --panel: #171b22; --line: #262c36;
+      --ink: #e6e9ef; --muted: #9aa4b2; --accent: #4ea1ff;
+      --good: #35c26b; --warn: #ffb020; --bad: #ff5d5d;
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #f4f6fa; --panel: #ffffff; --line: #e3e8ef;
+        --ink: #16202c; --muted: #5a6472; --accent: #1a73e8;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font: 15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: var(--bg); color: var(--ink);
+    }
+    header { padding: 28px 22px 8px; }
+    h1 { margin: 0; font-size: 22px; letter-spacing: .2px; }
+    .sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+    main { max-width: 1000px; margin: 0 auto; padding: 12px 18px 60px; }
+    .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 16px 0 26px; }
+    .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+    .tile .k { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+    .tile .v { font-size: 28px; font-weight: 650; margin-top: 4px; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px; margin-bottom: 22px; }
+    .card h2 { margin: 0 0 14px; font-size: 15px; font-weight: 600; }
+    svg { width: 100%; height: auto; display: block; }
+    table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+    th, td { text-align: right; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+    th:first-child, td:first-child { text-align: left; }
+    th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+    .pill { padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+    .empty { color: var(--muted); text-align: center; padding: 40px; }
+    .foot { color: var(--muted); font-size: 12px; text-align: center; margin-top: 30px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Dash Companion</h1>
+    <div class="sub">Driving-style trends · auto-refreshing</div>
+  </header>
+  <main>
+    <div class="tiles" id="tiles"></div>
+    <div class="card">
+      <h2>Smoothness by drive (most recent →)</h2>
+      <div id="chart"></div>
+    </div>
+    <div class="card">
+      <h2>Recent drives</h2>
+      <div id="table"></div>
+    </div>
+    <div class="foot">DashBuddy backend · data from <code>/api/drives</code></div>
+  </main>
+
+  <script>
+    const fmtG = (g) => (g ?? 0).toFixed(2) + 'g';
+    const fmtDur = (s) => {
+      s = s || 0; const m = Math.floor(s / 60);
+      return m >= 60 ? `${Math.floor(m/60)}h ${m%60}m` : `${m}m ${s%60}s`;
+    };
+    const fmtTime = (rec) => {
+      const t = rec.started_epoch || rec.received_at;
+      return t ? new Date(t * 1000).toLocaleString() : '—';
+    };
+    const scoreColor = (s) =>
+      s >= 80 ? 'var(--good)' : s >= 55 ? 'var(--warn)' : 'var(--bad)';
+
+    function renderTiles(d) {
+      const n = d.length;
+      const avg = (f) => n ? d.reduce((a, x) => a + (x[f] || 0), 0) / n : 0;
+      const sum = (f) => d.reduce((a, x) => a + (x[f] || 0), 0);
+      const peak = (f) => n ? Math.max(...d.map((x) => x[f] || 0)) : 0;
+      const tiles = [
+        ['Drives', n],
+        ['Avg smoothness', n ? Math.round(avg('smoothness')) : '—'],
+        ['Hard brakes', sum('hard_brake_count')],
+        ['Hard corners', sum('hard_corner_count')],
+        ['Max brake', n ? fmtG(peak('max_brake_g')) : '—'],
+        ['Max turning', n ? fmtG(peak('max_corner_g')) : '—'],
+        ['Peak turn rate', n ? Math.round(peak('max_turn_dps')) + '°/s' : '—'],
+      ];
+      document.getElementById('tiles').innerHTML = tiles.map(
+        ([k, v]) => `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div></div>`
+      ).join('');
+    }
+
+    function renderChart(d) {
+      const el = document.getElementById('chart');
+      if (!d.length) { el.innerHTML = '<div class="empty">No drives yet.</div>'; return; }
+      // Oldest → newest, left to right.
+      const rows = [...d].reverse();
+      const W = 960, H = 220, pad = { l: 34, r: 8, t: 10, b: 26 };
+      const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b;
+      const bw = iw / rows.length;
+      let bars = '';
+      rows.forEach((r, i) => {
+        const s = r.smoothness || 0;
+        const h = (s / 100) * ih;
+        const x = pad.l + i * bw + bw * 0.15;
+        const y = pad.t + ih - h;
+        bars += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(bw*0.7).toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="${scoreColor(s)}"><title>#${r.session_id}: ${s}</title></rect>`;
+      });
+      let grid = '';
+      [0, 50, 100].forEach((v) => {
+        const y = pad.t + ih - (v / 100) * ih;
+        grid += `<line x1="${pad.l}" y1="${y}" x2="${W-pad.r}" y2="${y}" stroke="var(--line)"/>`;
+        grid += `<text x="4" y="${y+4}" fill="var(--muted)" font-size="11">${v}</text>`;
+      });
+      el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${grid}${bars}</svg>`;
+    }
+
+    function renderTable(d) {
+      const el = document.getElementById('table');
+      if (!d.length) { el.innerHTML = '<div class="empty">Waiting for the first upload…</div>'; return; }
+      const head = ['Device / drive','When','Duration','Smooth','Brakes','Corners','Max brake','Max turning','Peak turn'];
+      const rows = d.slice(0, 30).map((r) => `
+        <tr>
+          <td>${r.device_id} · #${r.session_id}</td>
+          <td>${fmtTime(r)}</td>
+          <td>${fmtDur(r.duration_s)}</td>
+          <td><span class="pill" style="background:${scoreColor(r.smoothness)};color:#0b0e12">${r.smoothness ?? '—'}</span></td>
+          <td>${r.hard_brake_count ?? 0}</td>
+          <td>${r.hard_corner_count ?? 0}</td>
+          <td>${fmtG(r.max_brake_g)}</td>
+          <td>${fmtG(r.max_corner_g)}</td>
+          <td>${Math.round(r.max_turn_dps || 0)}°/s</td>
+        </tr>`).join('');
+      el.innerHTML = `<div style="overflow-x:auto"><table><thead><tr>${head.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>`;
+    }
+
+    async function refresh() {
+      try {
+        const d = await (await fetch('/api/drives')).json();
+        renderTiles(d); renderChart(d); renderTable(d);
+      } catch (e) {
+        document.getElementById('table').innerHTML = '<div class="empty">Backend unreachable.</div>';
+      }
+    }
+    refresh();
+    setInterval(refresh, 5000);
+  </script>
+</body>
+</html>

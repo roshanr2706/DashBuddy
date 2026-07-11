@@ -1,0 +1,12 @@
+# Keep the build context (and image) small and reproducible.
+node_modules
+data
+.env
+.env.*
+!.env.docker.example
+npm-debug.log
+Dockerfile
+docker-compose.yml
+.dockerignore
+.gitignore
+server.log

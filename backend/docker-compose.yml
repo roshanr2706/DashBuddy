@@ -1,0 +1,35 @@
+# DashBuddy backend — one-command deploy.
+#
+#   docker compose up -d          # build + start in the background
+#   docker compose logs -f        # watch uploads arrive
+#   docker compose down           # stop (data is kept in the volume)
+#
+# Config is optional: it runs with sane defaults out of the box. To override,
+# create a `.env` file next to this one (see .env.docker.example):
+#   DEVICE_KEY=your-secret        # MUST match firmware net::DEVICE_KEY
+#   HOST_PORT=3000                # host port the dashboard is served on
+
+services:
+  backend:
+    build: .
+    image: dashbuddy-backend
+    # This image is built locally, never pulled from a registry. Without this,
+    # `up` tries to pull first and prints a harmless but confusing
+    # "pull access denied for dashbuddy-backend" warning before building.
+    pull_policy: build
+    container_name: dashbuddy-backend
+    restart: unless-stopped
+    init: true                    # proper SIGTERM handling → clean stops
+    ports:
+      # host:container — change the host side via HOST_PORT; container stays 3000
+      - "${HOST_PORT:-3000}:3000"
+    environment:
+      PORT: 3000
+      DEVICE_KEY: ${DEVICE_KEY:-change-me}
+      DATA_FILE: /data/drives.json
+    volumes:
+      # Named volume → drive history survives `down`, rebuilds, and reboots.
+      - dashbuddy-data:/data
+
+volumes:
+  dashbuddy-data:
